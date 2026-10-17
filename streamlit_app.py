@@ -46,11 +46,6 @@ A = load_models()
 D = A["defaults"]
 M = A["metrics"]
  
-# =====================================================================
-# USER RESEARCH - EDIT THIS BLOCK WITH YOUR OWN INTERVIEW NOTES
-# Write everything in your own words, then change SHOW_RESEARCH to True.
-# Use roles only (no names) and no sensitive personal information.
-# =====================================================================
 SHOW_RESEARCH = True
 NUM_INTERVIEWS = 5   
 INTERVIEWEE_ROLES = [
@@ -70,12 +65,12 @@ KEY_NEEDS = [
     "factors and/or comparable sales.",
     "All 5 worried people would over-trust a computer-generated number; 3 of 5 wanted the tool to "
     "say when it is uncertain.",
-    "4 would use it as a second opinion; 2 of 5 would use it as a first estimate before talking "
+    "3 would use it as a second opinion; 2 of 5 would use it as a first estimate before talking "
     "to a professional.",
     "Most of them expected to have about 10 inputs or fewer, with extras optional.",
     "All 5 would avoid it for unusual, luxury, damaged or fixer-upper homes.",
 ]
-DESIGN_DECISIONS = [   # (what interviewees said, what we changed in the tool)
+DESIGN_DECISIONS = [   
     ("A range is more trustworthy than a single number.",
      "The tool shows an 80% price range next to the predicted price."),
     ("The tool should say when it is unsure.",
@@ -90,7 +85,7 @@ DESIGN_DECISIONS = [   # (what interviewees said, what we changed in the tool)
      "The page includes a \"What drives the odds?\" section showing which home features raise or "
      "lower the chance of selling above the median."),
 ]
-NOT_YET = [   # honest limits compared with what interviewees asked for
+NOT_YET = [   
     "Comparable recent sales, a map of comparables, and \"what if we renovate\" scenarios were requested "
     "but are not included.",
     "Interviewees wanted estimates within about 5-10% of the sale price; our typical error is "
@@ -191,7 +186,7 @@ if st.button("Get Property Estimate"):
     """, unsafe_allow_html=True)
     st.progress(min(max(p_above, 0.0), 1.0))
     st.caption("How to read this: the percentage is the model's estimate of how likely this home is to "
-               "sell for more than the typical (median) Cook County home. It is a guide, not a guarantee.")
+               "sell for more than the typical (median) 2013-2019 Cook County home sales price. It is a guide, not a guarantee.")
     if 0.35 <= p_above <= 0.65:
         st.info("Close call: this home sits near the median, so the prediction is less certain.")
  

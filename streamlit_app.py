@@ -100,83 +100,90 @@ if st.button("Get Property Estimate"):
         "sale_year": float(A["tool_year"]), "zip": str(zip_code),
     }])
  
-    # Features for Model 1 (linear) and Model 2 (logistic)
+    # Features for the linear and logistic models
     lin = row.copy()
     lin["log_sqft"] = np.log(lin["building_square_feet"])
     lin["log_land"] = np.log(lin["land_square_feet"].clip(lower=1))
     lin["log_age"] = np.log(lin["age"])
     lin = lin[A["lin_cols"]]
  
-    # Features for the extra LightGBM model
+    # Features for the LightGBM model
     gbm_X = row[A["gbm_cols"]].copy()
     gbm_X["zip"] = pd.Categorical(gbm_X["zip"], categories=A["zip_categories"])
  
-    # Model 1: Multiple Linear Regression (price + 80% range)
+    # MAIN MODEL - Model 2: Logistic Regression (above-median probability)
+    p_above = float(A["model2"].predict_proba(lin)[0, 1])
+ 
+    # BACKGROUND MODELS
     log1 = float(A["model1"].predict(lin)[0])
     price1 = float(np.exp(log1))
     low = float(np.exp(log1 + A["resid_lo"]))
     high = float(np.exp(log1 + A["resid_hi"]))
- 
-    # Model 2: Logistic Regression (above-median probability)
-    p_above = float(A["model2"].predict_proba(lin)[0, 1])
- 
-    # Extra model: LightGBM (second opinion)
     price_g = float(np.exp(A["gbm"].predict(gbm_X)[0]))
  
-    # RESULTS
+    if p_above >= 0.995:
+        p_text = ">99%"
+    elif p_above <= 0.005:
+        p_text = "<1%"
+    else:
+        p_text = f"{p_above:.0%}"
+    verdict = "ABOVE" if p_above >= 0.5 else "BELOW"
+ 
+    # RESULT (logistic regression)
     st.markdown(f"""
     <div class="result-card">
-    <div class="label">ESTIMATED SALE PRICE</div>
-    <div class="price">${price1:,.0f}</div>
-    <div class="range">Likely range (80% confidence): ${low:,.0f} to ${high:,.0f}</div>
+    <div class="label">MARKET POSITION</div>
+    <div class="price">{p_text} chance of selling above the median</div>
+    <div class="range">This home is more likely to sell <b>{verdict}</b> the county median price of ${A['median_price']:,.0f}.</div>
     </div>
     """, unsafe_allow_html=True)
+    st.progress(min(max(p_above, 0.0), 1.0))
+    if 0.35 <= p_above <= 0.65:
+        st.info("Close call: this home sits near the median, so the prediction is less certain.")
  
-    r1, r2 = st.columns(2)
- 
-    with r1:
-        st.subheader("Market Position")
-        st.progress(min(max(p_above, 0.0), 1.0))
-        verdict = "above" if p_above >= 0.5 else "below"
-        st.write(
-            f"**{p_above:.0%} chance** this home sells above the county median "
-            f"(${A['median_price']:,.0f}). It is more likely to sell **{verdict}** the median."
-        )
- 
-    with r2:
-        st.subheader("Second Opinion")
+    # BACKGROUND MODELS (supporting evidence)
+    with st.expander("Supporting price estimates (other models)"):
+        st.markdown("**Linear regression estimate**")
+        st.metric("Estimated sale price", f"${price1:,.0f}")
+        st.write(f"Likely range (80% confidence): ${low:,.0f} to ${high:,.0f}")
+        st.markdown("**LightGBM second opinion**")
         diff = (price_g - price1) / price1
-        st.metric("LightGBM estimate", f"${price_g:,.0f}", f"{diff:+.0%} vs main estimate",
+        st.metric("LightGBM estimate", f"${price_g:,.0f}", f"{diff:+.0%} vs linear regression",
                   delta_color="off")
         if low <= price_g <= high and abs(diff) <= 0.10:
-            st.success("The models agree.")
+            st.success("The price models agree.")
         elif low <= price_g <= high:
-            st.info("Within the range, but the estimates differ noticeably.")
+            st.info("Within the range, but the price estimates differ noticeably.")
         else:
-            st.warning("The models disagree. Verify with comparable sales.")
+            st.warning("The price models disagree. Verify with comparable sales.")
+        above_prices = [p for p in (price1, price_g)]
+        agree = all((p >= A["median_price"]) == (p_above >= 0.5) for p in above_prices)
+        st.caption("Both price estimates fall on the same side of the median as the logistic result."
+                   if agree else
+                   "A price estimate falls on the other side of the median from the logistic result.")
  
-    with st.expander("What drives this estimate?"):
-        c = A["m1_coefs"]
-        st.markdown(
-            "**Price effect of each factor (holding the others equal):**\n"
-            f"- +1% living area: about **{c['log_sqft']:+.2f}%** price\n"
-            f"- +1% lot size: about **{c['log_land']:+.2f}%** price\n"
-            f"- +1% age: about **{c['log_age']:+.2f}%** price\n"
-            f"- +1 bedroom: about **{(np.exp(c['bedrooms']) - 1) * 100:+.1f}%** price\n"
-            f"- +1 full bath: about **{(np.exp(c['full_baths']) - 1) * 100:+.1f}%** price\n"
-            f"- +1 half bath: about **{(np.exp(c['half_baths']) - 1) * 100:+.1f}%** price"
-        )
+    with st.expander("What drives the odds? (logistic regression)"):
+        labels = {"log_sqft": "Living area (sq ft)", "log_land": "Lot size", "log_age": "Property age",
+                  "bedrooms": "Bedrooms", "full_baths": "Full bathrooms",
+                  "half_baths": "Half bathrooms", "sale_year": "Sale year (market trend)"}
+        o = pd.Series(A["m2_odds"]).sort_values(ascending=False)
+        o.index = [labels.get(i, i) for i in o.index]
+        st.write("Each value is the multiplier on the odds of selling above the median for a "
+                 "one-standard-deviation increase, holding the other factors equal. "
+                 "Above 1 raises the odds, below 1 lowers them.")
+        st.dataframe(o.round(2).rename("Odds multiplier"))
  
     with st.expander("About the models and their limits"):
         m1, m2, mg = M["model1"], M["model2"], M["gbm"]
         st.write(
             f"- Trained on {M['n_train']:,} Cook County single-family sales (2013-2019); "
             f"estimates are as of {A['tool_year']}.\n"
-            f"- **Main estimate (Linear Regression):** typical error about {m1['median_pct_error']:.0%}; "
-            f"the 80% range held the true price {m1['range_coverage']:.0%} of the time on held-out homes.\n"
-            f"- **Market position (Logistic Regression):** classifies above/below median correctly "
-            f"{m2['accuracy']:.0%} of the time (AUC {m2['auc']:.2f}).\n"
-            f"- **Second opinion (LightGBM):** typical error about {mg['median_pct_error']:.0%}.\n"
+            f"- **Logistic regression (main):** classifies above/below median correctly "
+            f"{m2['accuracy']:.0%} of the time on held-out homes (precision {m2['precision']:.0%}, "
+            f"recall {m2['recall']:.0%}, AUC {m2['auc']:.2f}).\n"
+            f"- **Linear regression (supporting):** typical price error about {m1['median_pct_error']:.0%}; "
+            f"the 80% range held the true price {m1['range_coverage']:.0%} of the time.\n"
+            f"- **LightGBM (supporting):** typical price error about {mg['median_pct_error']:.0%}.\n"
             "- Condition, renovations, and the exact street are not captured. "
             "Use this as a starting point, not an appraisal."
         )

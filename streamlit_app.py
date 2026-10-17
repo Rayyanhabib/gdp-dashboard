@@ -1,17 +1,17 @@
 import os
- 
+
 import joblib
 import numpy as np
 import pandas as pd
 import streamlit as st
- 
+
 # PAGE SETTINGS
 st.set_page_config(
     page_title="HomePrice | Real Estate Price Prediction",
     page_icon="🏠",
     layout="wide"
 )
- 
+
 # WEBSITE DESIGN
 st.markdown("""
 <style>
@@ -33,23 +33,43 @@ div.stButton > button:hover { background-color: #244C70; color: white; }
 .result-card .range { color: #DCE6F0; font-size: 17px; }
 </style>
 """, unsafe_allow_html=True)
- 
- 
+
+
 # LOAD TRAINED MODELS
 @st.cache_resource
 def load_models():
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tool_models.joblib")
     return joblib.load(path)
- 
- 
+
+
 A = load_models()
 D = A["defaults"]
 M = A["metrics"]
- 
+
+# =====================================================================
+# USER RESEARCH - EDIT THIS BLOCK WITH YOUR OWN INTERVIEW NOTES
+# Write everything in your own words, then change SHOW_RESEARCH to True.
+# Use roles only (no names) and no sensitive personal information.
+# =====================================================================
+SHOW_RESEARCH = False
+NUM_INTERVIEWS = 5
+INTERVIEWEE_ROLES = [
+    "EDIT: role 1 (for example, realtor)",
+    "EDIT: role 2",
+]
+KEY_NEEDS = [
+    "EDIT: main need or concern you heard",
+    "EDIT: another need or concern",
+]
+DESIGN_DECISIONS = [   # (what interviewees said, what you changed in the tool)
+    ("EDIT: what you heard", "EDIT: the specific change you made to the inputs, outputs, or design"),
+    ("EDIT: a second finding", "EDIT: a second change"),
+]
+
 # HEADER
 st.markdown("## 🏠 HomePrice")
 st.caption("REAL ESTATE PRICE PREDICTION PLATFORM")
- 
+
 # HERO SECTION
 st.markdown("""
 <div class="hero">
@@ -62,7 +82,7 @@ informed property pricing decisions.
 </p>
 </div>
 """, unsafe_allow_html=True)
- 
+
 # PROPERTY INFORMATION
 st.header("Estimate Your Property Value")
 st.write(
@@ -71,27 +91,27 @@ st.write(
     "Covers single-family homes in Cook County, IL."
 )
 st.divider()
- 
+
 col1, col2 = st.columns(2)
- 
+
 with col1:
     sqft = st.number_input("Living Area (Square Feet)", min_value=400, max_value=10000,
                            value=int(round(D["sqft"], -1)), step=50)
     bedrooms = st.number_input("Number of Bedrooms", min_value=1, max_value=10, value=3)
     full_baths = st.number_input("Number of Full Bathrooms", min_value=1, max_value=8, value=2)
- 
+
 with col2:
     land = st.number_input("Lot Size (Square Feet)", min_value=500, max_value=100000,
                            value=int(round(D["land"], -2)), step=250)
     age = st.number_input("Property Age (Years)", min_value=1, max_value=170, value=int(D["age"]))
     half_baths = st.number_input("Number of Half Bathrooms", min_value=0, max_value=4, value=0)
- 
+
 # LOCATION INFORMATION
 st.subheader("Property Location")
 zip_code = st.selectbox("Select ZIP Code", A["zip_choices"])
- 
+
 st.divider()
- 
+
 if st.button("Get Property Estimate"):
     row = pd.DataFrame([{
         "building_square_feet": float(sqft), "land_square_feet": float(land),
@@ -99,28 +119,28 @@ if st.button("Get Property Estimate"):
         "half_baths": float(half_baths), "age": float(age),
         "sale_year": float(A["tool_year"]), "zip": str(zip_code),
     }])
- 
+
     # Features for the linear and logistic models
     lin = row.copy()
     lin["log_sqft"] = np.log(lin["building_square_feet"])
     lin["log_land"] = np.log(lin["land_square_feet"].clip(lower=1))
     lin["log_age"] = np.log(lin["age"])
     lin = lin[A["lin_cols"]]
- 
+
     # Features for the LightGBM model
     gbm_X = row[A["gbm_cols"]].copy()
     gbm_X["zip"] = pd.Categorical(gbm_X["zip"], categories=A["zip_categories"])
- 
+
     # MAIN MODEL - Model 2: Logistic Regression (above-median probability)
     p_above = float(A["model2"].predict_proba(lin)[0, 1])
- 
+
     # BACKGROUND MODELS
     log1 = float(A["model1"].predict(lin)[0])
     price1 = float(np.exp(log1))
     low = float(np.exp(log1 + A["resid_lo"]))
     high = float(np.exp(log1 + A["resid_hi"]))
     price_g = float(np.exp(A["gbm"].predict(gbm_X)[0]))
- 
+
     if p_above >= 0.995:
         p_text = ">99%"
     elif p_above <= 0.005:
@@ -128,7 +148,7 @@ if st.button("Get Property Estimate"):
     else:
         p_text = f"{p_above:.0%}"
     verdict = "ABOVE" if p_above >= 0.5 else "BELOW"
- 
+
     # RESULT (logistic regression)
     st.markdown(f"""
     <div class="result-card">
@@ -140,9 +160,9 @@ if st.button("Get Property Estimate"):
     st.progress(min(max(p_above, 0.0), 1.0))
     if 0.35 <= p_above <= 0.65:
         st.info("Close call: this home sits near the median, so the prediction is less certain.")
- 
+
     # BACKGROUND MODELS (supporting evidence)
-    with st.expander("Supporting price estimates (other models)"):
+    with st.expander("Predicted sale price (linear regression and LightGBM)", expanded=True):
         st.markdown("**Linear regression estimate**")
         st.metric("Estimated sale price", f"${price1:,.0f}")
         st.write(f"Likely range (80% confidence): ${low:,.0f} to ${high:,.0f}")
@@ -161,7 +181,7 @@ if st.button("Get Property Estimate"):
         st.caption("Both price estimates fall on the same side of the median as the logistic result."
                    if agree else
                    "A price estimate falls on the other side of the median from the logistic result.")
- 
+
     with st.expander("What drives the odds? (logistic regression)"):
         labels = {"log_sqft": "Living area (sq ft)", "log_land": "Lot size", "log_age": "Property age",
                   "bedrooms": "Bedrooms", "full_baths": "Full bathrooms",
@@ -172,7 +192,7 @@ if st.button("Get Property Estimate"):
                  "one-standard-deviation increase, holding the other factors equal. "
                  "Above 1 raises the odds, below 1 lowers them.")
         st.dataframe(o.round(2).rename("Odds multiplier"))
- 
+
     with st.expander("About the models and their limits"):
         m1, m2, mg = M["model1"], M["model2"], M["gbm"]
         st.write(
@@ -187,7 +207,22 @@ if st.button("Get Property Estimate"):
             "- Condition, renovations, and the exact street are not captured. "
             "Use this as a starting point, not an appraisal."
         )
- 
+
+# USER RESEARCH SECTION
+if SHOW_RESEARCH:
+    st.divider()
+    st.header("Built From User Research")
+    st.write(f"Before designing this tool, we interviewed {NUM_INTERVIEWS} people: "
+             + ", ".join(INTERVIEWEE_ROLES) + ".")
+    st.subheader("What we heard")
+    for need in KEY_NEEDS:
+        st.markdown(f"- {need}")
+    st.subheader("How it shaped the tool")
+    for heard, changed in DESIGN_DECISIONS:
+        c1, c2 = st.columns(2)
+        c1.markdown(f"**We heard:** {heard}")
+        c2.markdown(f"**We changed:** {changed}")
+
 # FOOTER
 st.divider()
 st.caption(
